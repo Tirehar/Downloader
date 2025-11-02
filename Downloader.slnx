@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Downloader/Downloader.csproj" />
+  <Project Path="Test/Test.csproj" />
+</Solution>
