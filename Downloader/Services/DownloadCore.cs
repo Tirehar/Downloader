@@ -48,7 +48,7 @@ public class DownloadCore
          _httpClient = httpClient;
     }
 
-    public async Task StartDownloadAsync()
+    public async Task StartDownloadAsync(CancellationToken token)
     {
         if(_httpClient == null)
         {
@@ -57,31 +57,31 @@ public class DownloadCore
 
         if ( _isMultiple)
         {
-            await DownloadMultipleFilesAsync(_downloadItems);
+            await DownloadMultipleFilesAsync(_downloadItems, token);
         }
         else
         {
-            await DownloadSingleFileAsync(_downloadItem, _chunkCount);
+            await DownloadSingleFileAsync(_downloadItem, _chunkCount, token);
         }
     }
 
-    private async Task DownloadMultipleFilesAsync(DownloadItem[] items)
+    private async Task DownloadMultipleFilesAsync(DownloadItem[] items, CancellationToken token)
     {
         Console.WriteLine($"开始批量下载 {items.Length} 个文件...");
-        await InitInfoAsync(items);
+        await InitInfoAsync(items, token);
         var tasks = new List<Task>();
        
         foreach (var item in items)
         {
-            tasks.Add(Task.Run(async () => await OpenDownloadTask(item)));
+            tasks.Add(Task.Run(async () => await OpenDownloadTask(item, token)));
         }
         Task.WaitAll(tasks.ToArray());
         OnDownloadCompleted?.Invoke(this, new DownloadCompltedArgs(null));
     }
 
-    private async Task DownloadSingleFileAsync(DownloadItem item, int chunkCount)
+    private async Task DownloadSingleFileAsync(DownloadItem item, int chunkCount, CancellationToken token)
     {
-        await InitInfoAsync(item);
+        await InitInfoAsync(item, token);
 
         var chunkSize = _totalBytes / chunkCount;
 
@@ -97,7 +97,7 @@ public class DownloadCore
                 long end = Math.Min((i + 1) * chunkSize - 1, _totalBytes - 1);
                 string chunkFile = Path.Combine(tempDir, $"{i}.chunk");
 
-                tasks[i] = Task.Run(async()=> await OpenDownloadTask(new() { Url=item.Url, FilePath=chunkFile}, start, end));
+                tasks[i] = Task.Run(async()=> await OpenDownloadTask(new() { Url=item.Url, FilePath=chunkFile}, token,start, end));
             }
 
             await Task.WhenAll(tasks);
@@ -112,23 +112,23 @@ public class DownloadCore
         }
     }
 
-    private async Task InitInfoAsync(DownloadItem item)
+    private async Task InitInfoAsync(DownloadItem item, CancellationToken token)
     {
         _totalBytesReceived = 0;
         if (item.FileSize is not null)
             _totalBytes= item.FileSize.Value;
         else
-            _totalBytes = await GetFileSizeAsync(item.Url);
+            _totalBytes = await GetFileSizeAsync(item.Url, token);
     }
 
-    private async Task InitInfoAsync(DownloadItem[] items)
+    private async Task InitInfoAsync(DownloadItem[] items, CancellationToken token)
     {
         foreach (var item in items)
         {
         if (item.FileSize.HasValue && item.FileSize.Value != 0)
             _totalBytes += item.FileSize.Value;
         else
-            _totalBytes += await GetFileSizeAsync(item.Url);
+            _totalBytes += await GetFileSizeAsync(item.Url, token);
     }
     }
 
@@ -143,10 +143,10 @@ public class DownloadCore
         }
     }
 
-    private async Task<long> GetFileSizeAsync(string url)
+    private async Task<long> GetFileSizeAsync(string url, CancellationToken token)
     {
         using var request = new HttpRequestMessage(HttpMethod.Head, url);
-        var response = await _httpClient.SendAsync(request);
+        var response = await _httpClient.SendAsync(request, token);
         if (response.IsSuccessStatusCode)
         {
             return response.Content.Headers.ContentLength ?? 0;
@@ -154,25 +154,12 @@ public class DownloadCore
         return 0;
     }
 
-    private async Task OpenDownloadTask(DownloadItem item)
+    private async Task OpenDownloadTask(DownloadItem item, CancellationToken token,long? start = null, long? end = null)
     {
         await _semaphore.WaitAsync(); // 等待信号量
         try
         {
-            await InitDownloadTask(item).StartAsync();
-        }
-        finally
-        {
-            _semaphore.Release(); // 释放信号量
-        }
-    }
-
-    private async Task OpenDownloadTask(DownloadItem item, long start, long end)
-    {
-        await _semaphore.WaitAsync(); // 等待信号量
-        try
-        {
-            await InitDownloadTask(item).StartAsync(start, end);
+            await InitDownloadTask(item).StartAsync(token ,start, end);
         }
         finally
         {

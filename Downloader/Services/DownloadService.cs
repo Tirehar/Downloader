@@ -40,13 +40,8 @@ public class DownloadService
         return core;
     }
 
-    public async Task FileDownloadAsync(DownloadCore core)
+    public async Task FileDownloadAsync(DownloadCore core, CancellationToken? token = null)
     {
-        await core.StartDownloadAsync();
-    }
-
-    public async Task FilesDownloadAsync(DownloadCore core)
-    {
-        await core.StartDownloadAsync();
+        await core.StartDownloadAsync(token??CancellationToken.None);
     }
 }

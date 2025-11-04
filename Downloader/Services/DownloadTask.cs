@@ -24,33 +24,28 @@ internal class DownloadTask
         _httpClient = httpClient;
     }
 
-    public async Task StartAsync()
-    {
-        using var response = await _httpClient.GetAsync(_url, HttpCompletionOption.ResponseHeadersRead);
-        await ProcessDownloadAsync(response);
-    }
-
-    public async Task StartAsync(long start, long end)
+    public async Task StartAsync(CancellationToken token, long? start = null, long? end = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, _url);
-        request.Headers.Range = new RangeHeaderValue(start, end);
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-        await ProcessDownloadAsync(response);
+        if(start.HasValue && end.HasValue)
+            request.Headers.Range = new RangeHeaderValue(start, end);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        await ProcessDownloadAsync(response, token);
     }
 
-    private async Task ProcessDownloadAsync(HttpResponseMessage response)
+    private async Task ProcessDownloadAsync(HttpResponseMessage response, CancellationToken token)
     {
         response.EnsureSuccessStatusCode();
-        await using var contentStream = await response.Content.ReadAsStreamAsync();
+        await using var contentStream = await response.Content.ReadAsStreamAsync(token);
         await using var fileStream = new FileStream(_filePath, FileMode.Create, FileAccess.Write);
 
         var buffer = new byte[8192];
         long totalBytesRead = 0;
         int bytesRead;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
+        while ((bytesRead = await contentStream.ReadAsync(buffer, token)) > 0)
         {
-            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
             totalBytesRead += bytesRead;
             
             if(sw.ElapsedMilliseconds >= 500)
